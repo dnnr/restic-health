@@ -41,7 +41,7 @@ for location_name, location in config_yaml['locations'].items():
     for backend_name, backend in location['backends'].items():
         backends[backend_name] = BackendConfig(
                 name = backend_name,
-                repository = backend['repository'])
+                repository = backend)
     locations[location_name] = LocationConfig(
             name = location_name,
             password_file = location['password_file'],
