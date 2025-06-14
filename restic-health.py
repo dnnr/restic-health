@@ -96,9 +96,11 @@ def write_state_file(location: LocationConfig, backend: BackendConfig, category:
     latest_link = base_dir / f'{category}.latest.json'
 
     base_dir.mkdir(parents=True, exist_ok=True)
+    logging.debug(f'Writing {file_path}')
     file_path.write_text(content)
     if latest_link.is_symlink():
         os.remove(latest_link)
+    logging.debug(f'Adding symlink {latest_link}')
     latest_link.symlink_to(file_path)
 
 for location_name, location in locations.items():
