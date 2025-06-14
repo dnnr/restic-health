@@ -132,7 +132,7 @@ async def get_latest_statefile_timestamp(location, backend):
     base_dir = Path(config.state_dir) / f'{location.name}@{backend.name}'
     latest_link = base_dir / 'raw-snapshots.latest.json'
     if not latest_link.is_symlink():
-        return datetime.min
+        return datetime.min.replace(tzinfo=timezone.utc)
     mtime = datetime.fromtimestamp(latest_link.stat().st_mtime, tz=timezone.utc)
     return mtime
 
