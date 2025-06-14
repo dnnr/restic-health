@@ -5,12 +5,12 @@ from operator import itemgetter
 import argparse
 import json
 from pathlib import Path
-import subprocess
 import sys
 import yaml
 import os
 from datetime import datetime
 import logging
+import asyncio
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health.yml')
@@ -53,7 +53,7 @@ for location_name, location in config_yaml['locations'].items():
             password_file = location['password_file'],
             backends = backends)
 
-def restic_json(backend: BackendConfig, password_file: str, args: list[str]) -> str:
+async def restic_json(backend: BackendConfig, password_file: str, args: list[str]) -> str:
     cache_dir_args = []
     if 'defaults' in config_yaml and 'cache_dir' in config_yaml['defaults']:
         cache_dir_args = ['--cache-dir', config_yaml['defaults']['cache_dir']]
@@ -64,31 +64,39 @@ def restic_json(backend: BackendConfig, password_file: str, args: list[str]) -> 
             }
     cmd = ['restic', '--json', '--quiet'] + cache_dir_args + args
 
-    proc = subprocess.run(cmd, env=env, text=True, capture_output=True)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout_bytes, stderr_bytes = await proc.communicate()
+    stdout = bytes.decode(stdout_bytes, 'utf8')
+    stderr = bytes.decode(stderr_bytes, 'utf8')
 
     if proc.returncode != 0:
-        print(f'Command {cmd} returned non-zero exit status {proc.returncode}. Standard error:\n{proc.stderr}')
+        print(f'Command {cmd} returned non-zero exit status {proc.returncode}. Standard error:\n{stderr}')
         sys.exit(1)
 
-    return proc.stdout
-
-def get_snapshots(location: LocationConfig, backend: BackendConfig) -> str:
-    stdout = restic_json(backend, location.password_file, ['snapshots'])
     return stdout
 
-def get_stats(location: LocationConfig, backend: BackendConfig, mode: str, snapshot: str|None = None) -> str:
+async def get_snapshots(location: LocationConfig, backend: BackendConfig) -> str:
+    stdout = await restic_json(backend, location.password_file, ['snapshots'])
+    return stdout
+
+async def get_stats(location: LocationConfig, backend: BackendConfig, mode: str, snapshot: str|None = None) -> str:
     args = ['stats', '--mode', mode]
     if snapshot is not None:
         args.append(snapshot)
-    stdout = restic_json(backend, location.password_file, args)
+    stdout = await restic_json(backend, location.password_file, args)
     return stdout
 
-def get_diff_stats(location: LocationConfig, backend: BackendConfig, snapshot_ids: list[str]) -> str:
-    stdout = restic_json(backend, location.password_file, ['diff'] + snapshot_ids)
+async def get_diff_stats(location: LocationConfig, backend: BackendConfig, snapshot_ids: list[str]) -> str:
+    stdout = await restic_json(backend, location.password_file, ['diff'] + snapshot_ids)
     lastline = stdout.splitlines()[-1]
     return lastline
 
-def write_state_file(location: LocationConfig, backend: BackendConfig, category: str, content: str) -> None:
+async def write_state_file(location: LocationConfig, backend: BackendConfig, category: str, content: str) -> None:
     now = datetime.now()
     time_str = now.strftime("%Y-%m-%d-%s")
     base_dir = Path(config.state_dir) / f'{location.name}@{backend.name}'
@@ -103,27 +111,45 @@ def write_state_file(location: LocationConfig, backend: BackendConfig, category:
     logging.debug(f'Adding symlink {latest_link}')
     latest_link.symlink_to(file_path)
 
-for location_name, location in locations.items():
-    for backend_name, backend in location.backends.items():
-        logging.info(f'Handling {location_name}@{backend_name}')
+async def is_locked(location, backend):
+    stdout = await restic_json(backend, location.password_file, ['list', 'locks'])
+    printf(f'{stdout=}')
 
-        logging.debug(f'Querying snapshot list for {location_name}@{backend_name}')
-        raw_snapshots = get_snapshots(location, backend)
-        write_state_file(location, backend, 'raw-snapshots', raw_snapshots)
+async def handle_repo(location, backend):
+    repo = f'{location.name}@{backend.name}'
+    logging.info(f'Handling {repo}')
 
-        snapshots = json.loads(raw_snapshots)
-        write_state_file(location, backend, 'snapshot-count', json.dumps({'snapshot_count': len(snapshots)}))
+    logging.debug(f'Checking if {repo} is locked')
 
-        if len(snapshots) >= 1:
-            logging.debug(f'Querying restore-size stats for latest snapshot in {location_name}@{backend_name}')
-            write_state_file(location, backend, 'raw-stats-restore-size-latest', get_stats(location, backend, 'restore-size', 'latest'))
-            logging.debug(f'Querying raw-data stats for latest snapshot in {location_name}@{backend_name}')
-            write_state_file(location, backend, 'raw-stats-raw-data-latest', get_stats(location, backend, 'raw-data', 'latest'))
-            logging.debug(f'Querying raw-data stats for all snapshots in {location_name}@{backend_name}')
-            write_state_file(location, backend, 'raw-stats-raw-data-all', get_stats(location, backend, 'raw-data'))
+    logging.debug(f'Querying snapshot list for {repo}')
+    raw_snapshots = await get_snapshots(location, backend)
+    await write_state_file(location, backend, 'raw-snapshots', raw_snapshots)
 
-        if len(snapshots) >= 2:
-            latest_two = list(map(itemgetter('id'), snapshots[-2:]))
-            logging.debug(f'Querying latest diff stats for {location_name}@{backend_name}')
-            diff_stats_latest = get_diff_stats(location, backend, latest_two)
-            write_state_file(location, backend, 'raw-diff-stats-latest', json.dumps(diff_stats_latest))
+    snapshots = json.loads(raw_snapshots)
+    await write_state_file(location, backend, 'snapshot-count', json.dumps({'snapshot_count': len(snapshots)}))
+
+    if len(snapshots) >= 1:
+        logging.debug(f'Querying restore-size stats for latest snapshot in {repo}')
+        await write_state_file(location, backend, 'raw-stats-restore-size-latest', await get_stats(location, backend, 'restore-size', 'latest'))
+        logging.debug(f'Querying raw-data stats for latest snapshot in {repo}')
+        await write_state_file(location, backend, 'raw-stats-raw-data-latest', await get_stats(location, backend, 'raw-data', 'latest'))
+        logging.debug(f'Querying raw-data stats for all snapshots in {repo}')
+        await write_state_file(location, backend, 'raw-stats-raw-data-all', await get_stats(location, backend, 'raw-data'))
+
+    if len(snapshots) >= 2:
+        latest_two = list(map(itemgetter('id'), snapshots[-2:]))
+        logging.debug(f'Querying latest diff stats for {repo}')
+        diff_stats_latest = await get_diff_stats(location, backend, latest_two)
+        await write_state_file(location, backend, 'raw-diff-stats-latest', diff_stats_latest)
+
+async def main():
+    handlers = []
+    for location_name, location in locations.items():
+        for backend_name, backend in location.backends.items():
+            handler = asyncio.create_task(handle_repo(location, backend))
+            handlers.append(handler)
+
+    for handler in asyncio.as_completed(handlers):
+        await handler
+
+asyncio.run(main())
