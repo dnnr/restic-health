@@ -163,7 +163,7 @@ async def wait_until_unlocked(location, backend):
         locks = await get_locks(location, backend)
         if len(locks) > 0:
             if retries_remaining == 0:
-                logging.error(f'Giving up on {repo} (still locked) after dumping existing locks')
+                logging.error(f'Giving up on {repo} (still locked) after dumping existing locks:')
                 for lock in locks:
                     lock_content = await restic_json(backend, location.password_file, ['cat', 'lock', lock])
                     print(lock_content)
