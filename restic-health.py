@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import yaml
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import asyncio
 
@@ -114,15 +114,77 @@ async def write_state_file(location: LocationConfig, backend: BackendConfig, cat
     logging.debug(f'Adding symlink {latest_link}')
     latest_link.symlink_to(file_path)
 
-async def is_locked(location, backend):
+async def get_locks(location, backend):
     stdout = await restic_json(backend, location.password_file, ['list', 'locks'])
-    printf(f'{stdout=}')
+    return stdout.splitlines()
+
+async def get_latest_snapshot_timestamp(location, backend):
+    raw_snapshots = await get_snapshots(location, backend)
+    snapshots = json.loads(raw_snapshots)
+    if len(snapshots) == 0:
+        return datetime.min
+    latest_snapshot = snapshots[-1]
+    snapshot_time = datetime.fromisoformat(snapshots[-1]['summary']['backup_end'])
+    return snapshot_time
+
+async def get_latest_statefile_timestamp(location, backend):
+    # Just checking *any* latest state file here, assuming they are all the same age.
+    base_dir = Path(config.state_dir) / f'{location.name}@{backend.name}'
+    latest_link = base_dir / 'raw-snapshots.latest.json'
+    if not latest_link.is_symlink():
+        return datetime.min
+    mtime = datetime.fromtimestamp(latest_link.stat().st_mtime, tz=timezone.utc)
+    return mtime
+
+async def wait_until_fresh_snapshot(location, backend):
+    repo = f'{location.name}@{backend.name}'
+    retry_delay = 60
+    retries_remaining = 20
+    while True:
+        logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
+        latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
+        latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
+        if latest_snapshot_timestamp < latest_statefile_timestamp:
+            if retries_remaining == 0:
+                logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
+                raise ResticHealthError()
+            retries_remaining -= 1
+            logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
+            await asyncio.sleep(retry_delay)
+        else:
+            break
+
+async def wait_until_unlocked(location, backend):
+    repo = f'{location.name}@{backend.name}'
+    retry_delay = 60
+    retries_remaining = 20
+    while True:
+        logging.debug(f'Checking if {repo} is locked')
+        locks = await get_locks(location, backend)
+        if len(locks) > 0:
+            if retries_remaining == 0:
+                logging.error(f'Giving up on {repo} (still locked) after dumping existing locks')
+                for lock in locks:
+                    lock_content = await restic_json(backend, location.password_file, ['cat', 'lock', lock])
+                    print(lock_content)
+                raise ResticHealthError()
+            retries_remaining -= 1
+            logging.debug(f'{repo} is locked, waiting {retry_delay} seconds before retrying up to {retries_remaining} more time(s)')
+            await asyncio.sleep(retry_delay)
+        else:
+            break
 
 async def handle_repo(location, backend):
     repo = f'{location.name}@{backend.name}'
     logging.info(f'Handling {repo}')
 
-    logging.debug(f'Checking if {repo} is locked')
+    # We can't really know when the fresh snapshot is going to be created, but
+    # if there isn't one, there's not much point in gathering health data. If
+    # this heuristic goes wrong, the lack of new data should correctly trigger
+    # alerts to investigate. Polling the latest snapshot timestamp is a bit of
+    # a hack, but it should work:
+    await wait_until_fresh_snapshot(location, backend)
+    await wait_until_unlocked(location, backend)
 
     logging.debug(f'Querying snapshot list for {repo}')
     raw_snapshots = await get_snapshots(location, backend)
