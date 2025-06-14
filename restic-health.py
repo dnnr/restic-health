@@ -65,7 +65,7 @@ async def restic_json(backend: BackendConfig, password_file: str, args: list[str
             'RESTIC_REPOSITORY': backend.repository,
             'RESTIC_PASSWORD_FILE': password_file,
             }
-    cmd = ['restic', '--json', '--quiet'] + cache_dir_args + args
+    cmd = ['restic', '--json', '--quiet', '--no-lock'] + cache_dir_args + args
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
