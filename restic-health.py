@@ -36,6 +36,9 @@ class LocationConfig:
     password_file: str
     backends: dict[str, BackendConfig]
 
+class ProcessException(Exception):
+    pass
+
 with open(args.config, 'r') as fh:
     config_yaml = yaml.safe_load(fh)
 
@@ -75,8 +78,8 @@ async def restic_json(backend: BackendConfig, password_file: str, args: list[str
     stderr = bytes.decode(stderr_bytes, 'utf8')
 
     if proc.returncode != 0:
-        print(f'Command {cmd} returned non-zero exit status {proc.returncode}. Standard error:\n{stderr}')
-        sys.exit(1)
+        logging.error(f'Command {cmd} returned non-zero exit status {proc.returncode}. Standard error:\n{stderr.strip()}')
+        raise ProcessException()
 
     return stdout
 
@@ -149,7 +152,14 @@ async def main():
             handler = asyncio.create_task(handle_repo(location, backend))
             handlers.append(handler)
 
+    fails = 0
     for handler in asyncio.as_completed(handlers):
-        await handler
+        try:
+            await handler
+        except ProcessException:
+            fails += 1
+    if fails > 0:
+        logging.error(f'Encountered {fails} error(s) (see log)')
+        sys.exit(1)
 
 asyncio.run(main())
