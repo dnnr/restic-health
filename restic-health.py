@@ -10,10 +10,16 @@ import sys
 import yaml
 import os
 from datetime import datetime
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health.yml')
+parser.add_argument('--verbose', '-v', action='store_true')
 args = parser.parse_args()
+
+logging.basicConfig(format='%(message)s', level=logging.INFO)
+if args.verbose:
+    logging.getLogger().setLevel(logging.DEBUG)
 
 @dataclass
 class GeneralConfig:
@@ -97,8 +103,9 @@ def write_state_file(location: LocationConfig, backend: BackendConfig, category:
 
 for location_name, location in locations.items():
     for backend_name, backend in location.backends.items():
-        print(f'Handling {location_name}@{backend_name}')
+        logging.info(f'Handling {location_name}@{backend_name}')
 
+        logging.debug(f'Querying snapshot list for {location_name}@{backend_name}')
         raw_snapshots = get_snapshots(location, backend)
         write_state_file(location, backend, 'raw-snapshots', raw_snapshots)
 
@@ -106,11 +113,15 @@ for location_name, location in locations.items():
         write_state_file(location, backend, 'snapshot-count', json.dumps({'snapshot_count': len(snapshots)}))
 
         if len(snapshots) >= 1:
+            logging.debug(f'Querying restore-size stats for latest snapshot in {location_name}@{backend_name}')
             write_state_file(location, backend, 'raw-stats-restore-size-latest', get_stats(location, backend, 'restore-size', 'latest'))
+            logging.debug(f'Querying raw-data stats for latest snapshot in {location_name}@{backend_name}')
             write_state_file(location, backend, 'raw-stats-raw-data-latest', get_stats(location, backend, 'raw-data', 'latest'))
+            logging.debug(f'Querying raw-data stats for all snapshots in {location_name}@{backend_name}')
             write_state_file(location, backend, 'raw-stats-raw-data-all', get_stats(location, backend, 'raw-data'))
 
         if len(snapshots) >= 2:
             latest_two = list(map(itemgetter('id'), snapshots[-2:]))
+            logging.debug(f'Querying latest diff stats for {location_name}@{backend_name}')
             diff_stats_latest = get_diff_stats(location, backend, latest_two)
             write_state_file(location, backend, 'raw-diff-stats-latest', json.dumps(diff_stats_latest))
