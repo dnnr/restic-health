@@ -36,7 +36,7 @@ class LocationConfig:
     password_file: str
     backends: dict[str, BackendConfig]
 
-class ProcessException(Exception):
+class ResticHealthError(Exception):
     pass
 
 with open(args.config, 'r') as fh:
@@ -79,7 +79,7 @@ async def restic_json(backend: BackendConfig, password_file: str, args: list[str
 
     if proc.returncode != 0:
         logging.error(f'Command {cmd} returned non-zero exit status {proc.returncode}. Standard error:\n{stderr.strip()}')
-        raise ProcessException()
+        raise ResticHealthError()
 
     return stdout
 
@@ -156,7 +156,7 @@ async def main():
     for handler in asyncio.as_completed(handlers):
         try:
             await handler
-        except ProcessException:
+        except ResticHealthError:
             fails += 1
     if fails > 0:
         logging.error(f'Encountered {fails} error(s) (see log)')
