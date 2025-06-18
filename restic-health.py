@@ -47,7 +47,7 @@ config = GeneralConfig(state_dir = config_yaml['state_dir'])
 locations: dict[str, LocationConfig] = {}
 for location_name, location in config_yaml['locations'].items():
     backends: dict[str, BackendConfig] = {}
-    for backend_name, backend in location['backends'].items():
+    for backend_name, backend in (location.get('backends') or dict()).items():
         backends[backend_name] = BackendConfig(
                 name = backend_name,
                 repository = backend)
