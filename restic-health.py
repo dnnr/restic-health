@@ -148,8 +148,8 @@ async def wait_until_fresh_snapshot(location, backend):
             if retries_remaining == 0:
                 logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
                 raise ResticHealthError()
-            retries_remaining -= 1
             logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
+            retries_remaining -= 1
             await asyncio.sleep(retry_delay)
         else:
             break
@@ -168,8 +168,8 @@ async def wait_until_unlocked(location, backend):
                     lock_content = await restic_json(backend, location.password_file, ['cat', 'lock', lock])
                     print(lock_content)
                 raise ResticHealthError()
-            retries_remaining -= 1
             logging.debug(f'{repo} is locked, waiting {retry_delay} seconds before retrying up to {retries_remaining} more time(s)')
+            retries_remaining -= 1
             await asyncio.sleep(retry_delay)
         else:
             break
