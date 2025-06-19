@@ -14,6 +14,7 @@ import asyncio
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health.yml')
+parser.add_argument('--skip-current', action='store_true', help='Skip (not wait/fail) repos that don\'t have a new snapshot')
 parser.add_argument('--verbose', '-v', action='store_true')
 args = parser.parse_args()
 
@@ -152,23 +153,25 @@ async def get_latest_statefile_timestamp(location, backend):
     mtime = datetime.fromtimestamp(latest_link.stat().st_mtime, tz=timezone.utc)
     return mtime
 
+async def has_fresh_snapshot(location, backend):
+    latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
+    latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
+    return latest_snapshot_timestamp > latest_statefile_timestamp
+
 async def wait_until_fresh_snapshot(location, backend):
     repo = f'{location.name}@{backend.name}'
     retry_delay = 120
     retries_remaining = 30
     while True:
         logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
-        latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
-        latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
-        if latest_snapshot_timestamp < latest_statefile_timestamp:
-            if retries_remaining == 0:
-                logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
-                raise ResticHealthError(repo)
-            logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
-            retries_remaining -= 1
-            await asyncio.sleep(retry_delay)
-        else:
-            break
+        if await has_fresh_snapshot(location, backend):
+            return
+        if retries_remaining == 1:
+            logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
+            raise ResticHealthError()
+        logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
+        retries_remaining -= 1
+        await asyncio.sleep(retry_delay)
 
 async def wait_until_unlocked(location, backend):
     repo = f'{location.name}@{backend.name}'
@@ -190,17 +193,22 @@ async def wait_until_unlocked(location, backend):
         else:
             break
 
-async def handle_repo(location, backend):
+async def handle_repo(location, backend, skip_current):
     repo = f'{location.name}@{backend.name}'
     logging.info(f'Handling {repo}')
 
-    # We can't really know when the fresh snapshot is going to be created, but
-    # if there isn't one, there's not much point in gathering health data. If
-    # this heuristic goes wrong, the lack of new data should correctly trigger
-    # alerts to investigate. Polling the latest snapshot timestamp is a bit of
-    # a hack, but it should work:
-    await wait_until_fresh_snapshot(location, backend)
-    await wait_until_unlocked(location, backend)
+    if skip_current:
+        if not await has_fresh_snapshot(location, backend):
+            logging.info(f'Skipping {repo} because there is no new snapshot (as per --skip-current)')
+            return  # no error
+    else:
+        # We can't really know when the fresh snapshot is going to be created, but
+        # if there isn't one, there's not much point in gathering health data. If
+        # this heuristic goes wrong, the lack of new data should correctly trigger
+        # alerts to investigate. Polling the latest snapshot timestamp is a bit of
+        # a hack, but it should work:
+        await wait_until_fresh_snapshot(location, backend)
+        await wait_until_unlocked(location, backend)
 
     logging.debug(f'Querying snapshot list for {repo}')
     raw_snapshots = await get_snapshots(location, backend)
@@ -227,7 +235,7 @@ async def main():
     handlers = []
     for location_name, location in locations.items():
         for backend_name, backend in location.backends.items():
-            handler = asyncio.create_task(handle_repo(location, backend))
+            handler = asyncio.create_task(handle_repo(location, backend, skip_current=args.skip_current))
             handlers.append(handler)
 
     fails = 0
