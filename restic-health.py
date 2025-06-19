@@ -17,9 +17,24 @@ parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/
 parser.add_argument('--verbose', '-v', action='store_true')
 args = parser.parse_args()
 
-logging.basicConfig(format='%(message)s', level=logging.INFO)
-if args.verbose:
-    logging.getLogger().setLevel(logging.DEBUG)
+class LevelPrefixFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        original = record.msg
+        if record.levelno >= logging.WARNING:
+            record.msg = f'{record.levelname.capitalize()}: {original}'
+
+        try:
+            return super().format(record)
+        finally:
+            record.msg = original
+
+stdout_handler = logging.StreamHandler()
+stdout_handler.setFormatter(LevelPrefixFormatter())
+level = logging.DEBUG if args.verbose else logging.INFO
+logging.basicConfig(format='%(message)s', level=level, handlers=[stdout_handler])
+
+# Suppress noise from asyncio:
+logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 @dataclass
 class GeneralConfig:
@@ -167,7 +182,7 @@ async def wait_until_unlocked(location, backend):
                 for lock in locks:
                     lock_content = await restic_json(backend, location.password_file, ['cat', 'lock', lock])
                     print(lock_content)
-                raise ResticHealthError(repo)
+                raise ResticHealthError()
             logging.debug(f'{repo} is locked, waiting {retry_delay} seconds before retrying up to {retries_remaining} more time(s)')
             retries_remaining -= 1
             await asyncio.sleep(retry_delay)
@@ -214,15 +229,14 @@ async def main():
             handler = asyncio.create_task(handle_repo(location, backend))
             handlers.append(handler)
 
-    failed_repos = []
+    fails = 0
     for handler in asyncio.as_completed(handlers):
         try:
             await handler
         except ResticHealthError as e:
-            failed_repos.append(str(e))
-    if len(failed_repos) > 0:
-        failed_repos_str = ', '.join(failed_repos)
-        logging.error(f'Encountered {len(failed_repos)} error{"s" if len(failed_repos) != 1 else ""} on {failed_repos_str}')
+            fails += 1
+    if fails > 0:
+        logging.error(f'Encountered {fails} error{"s" if fails != 1 else ""} in total')
         sys.exit(1)
 
 asyncio.run(main())
