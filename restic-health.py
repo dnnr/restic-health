@@ -138,8 +138,8 @@ async def get_latest_statefile_timestamp(location, backend):
 
 async def wait_until_fresh_snapshot(location, backend):
     repo = f'{location.name}@{backend.name}'
-    retry_delay = 60
-    retries_remaining = 20
+    retry_delay = 120
+    retries_remaining = 30
     while True:
         logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
         latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
@@ -156,8 +156,8 @@ async def wait_until_fresh_snapshot(location, backend):
 
 async def wait_until_unlocked(location, backend):
     repo = f'{location.name}@{backend.name}'
-    retry_delay = 60
-    retries_remaining = 20
+    retry_delay = 120
+    retries_remaining = 30
     while True:
         logging.debug(f'Checking if {repo} is locked')
         locks = await get_locks(location, backend)
