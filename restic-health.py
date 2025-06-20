@@ -237,10 +237,14 @@ async def handle_repo(location, backend, skip_current):
     if len(snapshots) >= 1:
         logging.debug(f'Querying restore-size stats for latest snapshot in {repo}')
         await write_state_file(location, backend, 'raw-stats-restore-size-latest', await get_stats(location, backend, 'restore-size', 'latest'))
-        logging.debug(f'Querying raw-data stats for latest snapshot in {repo}')
-        await write_state_file(location, backend, 'raw-stats-raw-data-latest', await get_stats(location, backend, 'raw-data', 'latest'))
-        logging.debug(f'Querying raw-data stats for all snapshots in {repo}')
-        await write_state_file(location, backend, 'raw-stats-raw-data-all', await get_stats(location, backend, 'raw-data'))
+
+        # Collecting raw-data stats is disabled for now (since 2025-06-27)
+        # because it's too expensive. See also the munin plugin for some more
+        # thoughts.
+        #  logging.debug(f'Querying raw-data stats for latest snapshot in {repo}')
+        #  await write_state_file(location, backend, 'raw-stats-raw-data-latest', await get_stats(location, backend, 'raw-data', 'latest'))
+        #  logging.debug(f'Querying raw-data stats for all snapshots in {repo}')
+        #  await write_state_file(location, backend, 'raw-stats-raw-data-all', await get_stats(location, backend, 'raw-data'))
 
     if len(snapshots) >= 2:
         latest_two = list(map(itemgetter('id'), snapshots[-2:]))

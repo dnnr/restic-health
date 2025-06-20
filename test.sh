@@ -28,10 +28,6 @@ test-restic-health/state_dir
 test-restic-health/state_dir/testloc@testbe
 test-restic-health/state_dir/testloc@testbe/raw-snapshots-YYYY-MM-DD-xxx.json
 test-restic-health/state_dir/testloc@testbe/raw-snapshots.latest.json
-test-restic-health/state_dir/testloc@testbe/raw-stats-raw-data-all-YYYY-MM-DD-xxx.json
-test-restic-health/state_dir/testloc@testbe/raw-stats-raw-data-all.latest.json
-test-restic-health/state_dir/testloc@testbe/raw-stats-raw-data-latest-YYYY-MM-DD-xxx.json
-test-restic-health/state_dir/testloc@testbe/raw-stats-raw-data-latest.latest.json
 test-restic-health/state_dir/testloc@testbe/raw-stats-restore-size-latest-YYYY-MM-DD-xxx.json
 test-restic-health/state_dir/testloc@testbe/raw-stats-restore-size-latest.latest.json
 test-restic-health/state_dir/testloc@testbe/snapshot-count-YYYY-MM-DD-xxx.json
