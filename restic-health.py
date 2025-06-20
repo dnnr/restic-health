@@ -166,7 +166,7 @@ async def wait_until_fresh_snapshot(location, backend):
         logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
         if await has_fresh_snapshot(location, backend):
             return
-        if retries_remaining == 1:
+        if retries_remaining == 0:
             logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
             raise ResticHealthError()
         logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
