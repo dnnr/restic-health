@@ -156,7 +156,7 @@ async def get_latest_statefile_timestamp(location, backend):
 async def has_fresh_snapshot(location, backend):
     latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
     latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
-    return latest_snapshot_timestamp > latest_statefile_timestamp
+    return latest_snapshot_timestamp > latest_statefile_timestamp, latest_snapshot_timestamp
 
 async def wait_until_fresh_snapshot(location, backend):
     repo = f'{location.name}@{backend.name}'
@@ -164,7 +164,8 @@ async def wait_until_fresh_snapshot(location, backend):
     retries_remaining = 30
     while True:
         logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
-        if await has_fresh_snapshot(location, backend):
+        has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
+        if has_fresh:
             return
         if retries_remaining == 0:
             logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
