@@ -40,6 +40,9 @@ logging.getLogger('asyncio').setLevel(logging.WARNING)
 @dataclass
 class GeneralConfig:
     state_dir: str
+    cache_dir: str|None
+    retries: int
+    retry_delay: int
 
 @dataclass
 class BackendConfig:
@@ -58,7 +61,22 @@ class ResticHealthError(Exception):
 with open(args.config, 'r') as fh:
     config_yaml = yaml.safe_load(fh)
 
-config = GeneralConfig(state_dir = config_yaml['state_dir'])
+# Add default values (in a stupid but simple way)
+if not 'defaults' in config_yaml:
+    config_yaml['defaults'] = dict()
+
+if not 'retries' in config_yaml['defaults']:
+    config_yaml['defaults']['retries'] = 30
+
+if not 'retry_delay' in config_yaml['defaults']:
+    config_yaml['defaults']['retry_delay'] = 120
+
+config = GeneralConfig(
+        state_dir = config_yaml['state_dir'],
+        cache_dir = config_yaml['defaults']['cache_dir'] or None,
+        retries = config_yaml['defaults']['retries'],
+        retry_delay = config_yaml['defaults']['retry_delay'],
+        )
 
 locations: dict[str, LocationConfig] = {}
 for location_name, location in config_yaml['locations'].items():
@@ -74,7 +92,7 @@ for location_name, location in config_yaml['locations'].items():
 
 async def restic_json(backend: BackendConfig, location: LocationConfig, args: list[str]) -> str:
     cache_dir_args = []
-    if 'defaults' in config_yaml and 'cache_dir' in config_yaml['defaults']:
+    if config.cache_dir:
         cache_dir_args = ['--cache-dir', config_yaml['defaults']['cache_dir']]
 
     env = {
@@ -129,7 +147,7 @@ async def write_state_file(location: LocationConfig, backend: BackendConfig, cat
     if latest_link.is_symlink():
         os.remove(latest_link)
     logging.debug(f'Adding symlink {latest_link}')
-    latest_link.symlink_to(file_path)
+    latest_link.symlink_to(os.path.relpath(file_path, latest_link.parent))
 
 async def get_locks(location, backend):
     stdout = await restic_json(backend, location, ['list', 'locks'])
@@ -160,8 +178,7 @@ async def has_fresh_snapshot(location, backend):
 
 async def wait_until_fresh_snapshot(location, backend):
     repo = f'{location.name}@{backend.name}'
-    retry_delay = 120
-    retries_remaining = 30
+    retries_remaining = config.retries
     while True:
         logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
         has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
@@ -170,14 +187,13 @@ async def wait_until_fresh_snapshot(location, backend):
         if retries_remaining == 0:
             logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
             raise ResticHealthError()
-        logging.debug(f'{repo} has no new snapshot, waiting {retry_delay} seconds before checking up to {retries_remaining} more time(s)')
+        logging.debug(f'{repo} has no new snapshot, waiting {config.retry_delay} seconds before checking up to {retries_remaining} more time(s)')
         retries_remaining -= 1
-        await asyncio.sleep(retry_delay)
+        await asyncio.sleep(config.retry_delay)
 
 async def wait_until_unlocked(location, backend):
     repo = f'{location.name}@{backend.name}'
-    retry_delay = 120
-    retries_remaining = 30
+    retries_remaining = config.retries
     while True:
         logging.debug(f'Checking if {repo} is locked')
         locks = await get_locks(location, backend)
@@ -188,9 +204,9 @@ async def wait_until_unlocked(location, backend):
                     lock_content = await restic_json(backend, location, ['cat', 'lock', lock])
                     print(lock_content)
                 raise ResticHealthError()
-            logging.debug(f'{repo} is locked, waiting {retry_delay} seconds before retrying up to {retries_remaining} more time(s)')
+            logging.debug(f'{repo} is locked, waiting {config.retry_delay} seconds before retrying up to {retries_remaining} more time(s)')
             retries_remaining -= 1
-            await asyncio.sleep(retry_delay)
+            await asyncio.sleep(config.retry_delay)
         else:
             break
 
