@@ -149,6 +149,9 @@ async def write_state_file(location: LocationConfig, backend: BackendConfig, cat
     logging.debug(f'Adding symlink {latest_link}')
     latest_link.symlink_to(os.path.relpath(file_path, latest_link.parent))
 
+async def unlock(location, backend):
+    await restic_json(backend, location, ['unlock'])
+
 async def get_locks(location, backend):
     stdout = await restic_json(backend, location, ['list', 'locks'])
     return stdout.splitlines()
@@ -196,6 +199,10 @@ async def wait_until_unlocked(location, backend):
     retries_remaining = config.retries
     while True:
         logging.debug(f'Checking if {repo} is locked')
+        # Calling "restic unlock" is always safe because it only removes stale
+        # locks, and lock holders are required to periodically refresh their
+        # locks. In the future, restic probably simply ignore stale locks.
+        await unlock(location, backend)
         locks = await get_locks(location, backend)
         if len(locks) > 0:
             if retries_remaining == 0:
