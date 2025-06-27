@@ -41,4 +41,10 @@ diff test-restic-health/expected_state_file_list_sanitized test-restic-health/ac
 # Assert that there aren't any broken symlinks in the state directory:
 find test-restic-health/state_dir -xtype l -print -exec false '{}' +
 
-./restic-health.py -c restic-health.test.yml -v
+# Fails because there's no new snapshot
+./restic-health.py -c restic-health.test.yml -v && exit 1
+
+# Succeeds thanks to --skip-current
+./restic-health.py -c restic-health.test.yml -v --skip-current
+
+echo 'Success!'
