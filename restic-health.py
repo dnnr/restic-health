@@ -228,7 +228,8 @@ async def handle_repo(location, backend, skip_current):
         # alerts to investigate. Polling the latest snapshot timestamp is a bit of
         # a hack, but it should work:
         await wait_until_fresh_snapshot(location, backend)
-        await wait_until_unlocked(location, backend)
+
+    await wait_until_unlocked(location, backend)
 
     logging.debug(f'Querying snapshot list for {repo}')
     raw_snapshots = await get_snapshots(location, backend)
