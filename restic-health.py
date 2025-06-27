@@ -215,7 +215,10 @@ async def handle_repo(location, backend, skip_current):
     logging.info(f'Handling {repo}')
 
     if skip_current:
-        if not await has_fresh_snapshot(location, backend):
+        has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
+        if has_fresh:
+            logging.debug(f'Latest snapshot in {repo} is newer ({latest_snapshot_timestamp}) than our state file')
+        else:
             logging.info(f'Skipping {repo} because there is no new snapshot (as per --skip-current)')
             return  # no error
     else:
