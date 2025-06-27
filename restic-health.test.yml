@@ -1,0 +1,12 @@
+---
+state_dir: 'test-restic-health/state_dir'
+defaults:
+  cache_dir: 'test-restic-health/cache'
+  retries: 0
+  retry_delay: 999
+
+locations:
+  testloc:
+    password_file: 'test-restic-health/pw'
+    backends:
+      testbe: 'test-restic-health/repo'
