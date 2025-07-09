@@ -16,6 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health.yml')
 parser.add_argument('--skip-current', action='store_true', help='Skip (not wait/fail) repos that don\'t have a new snapshot')
 parser.add_argument('--verbose', '-v', action='store_true')
+parser.add_argument('command', choices=['collect', 'check', 'check-read-data'])
 args = parser.parse_args()
 
 class LevelPrefixFormatter(logging.Formatter):
@@ -221,9 +222,9 @@ async def wait_until_unlocked(location, backend):
         else:
             break
 
-async def handle_repo(location, backend, skip_current):
+async def repo_collect(location, backend, skip_current):
     repo = f'{location.name}@{backend.name}'
-    logging.info(f'Handling {repo}')
+    logging.info(f'Collecting metrics for {repo}')
 
     if skip_current:
         has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
@@ -267,11 +268,25 @@ async def handle_repo(location, backend, skip_current):
         diff_stats_latest = await get_diff_stats(location, backend, latest_two)
         await write_state_file(location, backend, 'raw-diff-stats-latest', diff_stats_latest)
 
+async def repo_check(location, backend, read_data):
+    repo = f'{location.name}@{backend.name}'
+
+    args = ['check'] + ['--read_data'] if read_data else []
+    logging.info(f'Running restic {" ".join(args)} for {repo}')
+
+    out = await restic(backend, location, ['check'])
+
 async def main():
     handlers = []
     for location_name, location in locations.items():
         for backend_name, backend in location.backends.items():
-            handler = asyncio.create_task(handle_repo(location, backend, skip_current=args.skip_current))
+            if args.command == 'collect':
+                handler = asyncio.create_task(repo_collect(location, backend, skip_current=args.skip_current))
+            elif args.command == 'check':
+                handler = asyncio.create_task(repo_check(location, backend, read_data=False))
+            elif args.command == 'check-read-data':
+                handler = asyncio.create_task(repo_check(location, backend, read_data=True))
+
             handlers.append(handler)
 
     fails = 0

@@ -17,7 +17,7 @@ function test_restic {
 test_restic init
 test_restic backup /dev/zero
 
-./restic-health.py -c restic-health.test.yml -v
+./restic-health.py -c restic-health.test.yml -v collect
 
 function assert_state_exists {
     test -e test-restic-health/state_dir/$1
@@ -42,9 +42,20 @@ diff test-restic-health/expected_state_file_list_sanitized test-restic-health/ac
 find test-restic-health/state_dir -xtype l -print -exec false '{}' +
 
 # Fails because there's no new snapshot
-./restic-health.py -c restic-health.test.yml -v && exit 1
+./restic-health.py -c restic-health.test.yml -v collect && exit 1
 
 # Succeeds thanks to --skip-current
-./restic-health.py -c restic-health.test.yml -v --skip-current
+./restic-health.py -c restic-health.test.yml -v --skip-current collect
+
+./restic-health.py -c restic-health.test.yml -v check
+./restic-health.py -c restic-health.test.yml -v check-read-data
+
+# Cause some corruption in the repo (Note to self: I've tried to surgically break
+# something that can only be found with --read-data, but it seemed too hard to
+# be worth the effort):
+find test-restic-health/repo/data -type f | shuf | head -n1 | xargs rm -v
+./restic-health.py -c restic-health.test.yml -v check && exit 1
+./restic-health.py -c restic-health.test.yml -v check-read-data && exit 1
+
 
 echo 'Success!'
