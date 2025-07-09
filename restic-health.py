@@ -90,7 +90,8 @@ for location_name, location in config_yaml['locations'].items():
             password_file = location['password_file'],
             backends = backends)
 
-async def restic_json(backend: BackendConfig, location: LocationConfig, args: list[str]) -> str:
+
+async def restic(backend: BackendConfig, location: LocationConfig, args: list[str]) -> str:
     cache_dir_args = []
     if config.cache_dir:
         cache_dir_args = ['--cache-dir', config_yaml['defaults']['cache_dir']]
@@ -99,7 +100,7 @@ async def restic_json(backend: BackendConfig, location: LocationConfig, args: li
             'RESTIC_REPOSITORY': backend.repository,
             'RESTIC_PASSWORD_FILE': location.password_file,
             }
-    cmd = ['restic', '--json', '--quiet', '--no-lock'] + cache_dir_args + args
+    cmd = ['restic', '--quiet', '--no-lock'] + cache_dir_args + args
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -117,6 +118,9 @@ async def restic_json(backend: BackendConfig, location: LocationConfig, args: li
         raise ResticHealthError()
 
     return stdout
+
+async def restic_json(backend: BackendConfig, location: LocationConfig, args: list[str]) -> str:
+    return await restic(backend, location, ['--json', *args])
 
 async def get_snapshots(location: LocationConfig, backend: BackendConfig) -> str:
     stdout = await restic_json(backend, location, ['snapshots'])
