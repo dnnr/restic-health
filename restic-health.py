@@ -13,7 +13,7 @@ import logging
 import asyncio
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health.yml')
+parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health/restic-health.yml')
 parser.add_argument('--skip-current', action='store_true', help='Skip (not wait/fail) repos that don\'t have a new snapshot')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('command', choices=['collect', 'check', 'check-read-data'])
