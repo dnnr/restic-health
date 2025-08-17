@@ -187,8 +187,8 @@ async def has_fresh_snapshot(location, backend):
     # mode: If restic-health doesn't execute for more than 24h, the next run will see yesterday's snapshot and immediately assume that's
     # a fresh snapshot, even though today's snapshot is still being created. On the next day, the same thing will happen, and so on. This
     # scenario of course assumes daily snapshots, and so does the solution: Simply base freshness on whether the latest snapshot is from
-    # today (and just don't consider timezones at all).
-    latest_snapshot_is_from_today = latest_snapshot_timestamp.date() - datetime.today().date()
+    # today (and just don't consider timezones at all ¯\_(ツ)_/¯).
+    latest_snapshot_is_from_today = latest_snapshot_timestamp.date() == datetime.today().date()
     return latest_snapshot_is_from_today, latest_snapshot_timestamp
 
 async def wait_until_fresh_snapshot(location, backend):
