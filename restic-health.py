@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import yaml
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, UTC
 import logging
 import asyncio
 
@@ -194,7 +194,10 @@ async def has_fresh_snapshot(location, backend):
     # a fresh snapshot, even though today's snapshot is still being created. On the next day, the same thing will happen, and so on. This
     # scenario of course assumes daily snapshots, and so does the solution: Simply base freshness on whether the latest snapshot is from
     # today (and just don't consider timezones at all ¯\_(ツ)_/¯).
-    latest_snapshot_is_from_today = latest_snapshot_timestamp.date() == datetime.today().date()
+    # Later, "is from today" proved problematic with timezones and non-daily backups (e.g., phone backups), so we've switched to "from the
+    # last 12 hours" as a proxy for "today". Technically, the correct threshold would be "from after the last run of restic-health", but
+    # that's too complicated to be worth it.
+    latest_snapshot_is_from_today = latest_snapshot_timestamp > (datetime.now(UTC) - timedelta(hours=12))
     return latest_snapshot_is_from_today, latest_snapshot_timestamp
 
 async def wait_until_fresh_snapshot(location, backend):
