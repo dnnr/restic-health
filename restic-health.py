@@ -287,10 +287,12 @@ async def repo_collect(location, backend, skip_current):
 async def repo_check(location, backend, read_data):
     repo = f'{location.name}@{backend.name}'
 
-    args = ['check'] + ['--read_data'] if read_data else []
+    args = ['check']
+    if read_data:
+        args += ['--read-data']
     logging.info(f'Running restic {" ".join(args)} for {repo}')
 
-    out = await restic(backend, location, ['check'])
+    out = await restic(backend, location, args)
 
 async def main():
     handlers = []
