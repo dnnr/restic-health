@@ -15,6 +15,8 @@ import asyncio
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health/restic-health.yml')
 parser.add_argument('--skip-current', action='store_true', help='Skip (not wait/fail) repos that don\'t have a new snapshot')
+parser.add_argument('--locations', type=str, help='Only check these locations (comma separated)')
+parser.add_argument('--backends', type=str, help='Only check these backends (comma separated)')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('command', choices=['collect', 'check', 'check-read-data'])
 args = parser.parse_args()
@@ -81,8 +83,12 @@ config = GeneralConfig(
 
 locations: dict[str, LocationConfig] = {}
 for location_name, location in config_yaml['locations'].items():
+    if args.locations != None and location_name not in args.locations.split(','):
+        continue
     backends: dict[str, BackendConfig] = {}
     for backend_name, backend in (location.get('backends') or dict()).items():
+        if args.backends != None and backend_name not in args.backends.split(','):
+            continue
         backends[backend_name] = BackendConfig(
                 name = backend_name,
                 repository = backend)
