@@ -14,7 +14,7 @@ import asyncio
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', '-c', metavar='CONFIG', type=str, default='/etc/restic-health/restic-health.yml')
-parser.add_argument('--skip-current', action='store_true', help='Skip (not wait/fail) repos that don\'t have a new snapshot')
+parser.add_argument('--no-wait', action='store_true', help='Do not wait for a fresh snapshot to appear (and do not fail if there is none)')
 parser.add_argument('--locations', type=str, help='Only check these locations (comma separated)')
 parser.add_argument('--backends', type=str, help='Only check these backends (comma separated)')
 parser.add_argument('--verbose', '-v', action='store_true')
@@ -186,6 +186,8 @@ async def get_latest_statefile_timestamp(location, backend):
     return mtime
 
 async def has_fresh_snapshot(location, backend):
+    repo = f'{location.name}@{backend.name}'
+    logging.debug(f'Checking if latest snapshot in {repo} is less than 12 hours old')
     latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
     latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
 
@@ -200,17 +202,23 @@ async def has_fresh_snapshot(location, backend):
     latest_snapshot_is_from_today = latest_snapshot_timestamp > (datetime.now(UTC) - timedelta(hours=12))
     return latest_snapshot_is_from_today, latest_snapshot_timestamp
 
-async def wait_until_fresh_snapshot(location, backend):
+async def has_newer_snapshot_than_stored(location, backend):
+    repo = f'{location.name}@{backend.name}'
+    logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
+    latest_snapshot_timestamp = await get_latest_snapshot_timestamp(location, backend)
+    latest_statefile_timestamp = await get_latest_statefile_timestamp(location, backend)
+    return latest_snapshot_timestamp > latest_statefile_timestamp
+
+async def wait_until_fresh_snapshot(location, backend) -> bool:
     repo = f'{location.name}@{backend.name}'
     retries_remaining = config.retries
     while True:
-        logging.debug(f'Checking if latest snapshot in {repo} is newer than our latest data')
         has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
         if has_fresh:
-            return
+            return True
         if retries_remaining == 0:
-            logging.error(f'Giving up on {repo}: No new snapshot appeared, latest is from {latest_snapshot_timestamp}')
-            raise ResticHealthError()
+            logging.info(f'Giving up waiting for fresh snapshot in {repo} (latest is from {latest_snapshot_timestamp})')
+            return False
         logging.debug(f'{repo} has no new snapshot, waiting {config.retry_delay} seconds before checking up to {retries_remaining} more time(s)')
         retries_remaining -= 1
         await asyncio.sleep(config.retry_delay)
@@ -238,24 +246,36 @@ async def wait_until_unlocked(location, backend):
         else:
             break
 
-async def repo_collect(location, backend, skip_current):
+async def repo_collect(location, backend, no_wait):
     repo = f'{location.name}@{backend.name}'
     logging.info(f'Collecting metrics for {repo}')
 
-    if skip_current:
-        has_fresh, latest_snapshot_timestamp = await has_fresh_snapshot(location, backend)
-        if has_fresh:
-            logging.debug(f'Latest snapshot in {repo} is newer ({latest_snapshot_timestamp}) than our state file')
-        else:
-            logging.info(f'Skipping {repo} because there is no new snapshot (as per --skip-current)')
-            return  # no error
-    else:
-        # We can't really know when the fresh snapshot is going to be created, but
-        # if there isn't one, there's not much point in gathering health data. If
-        # this heuristic goes wrong, the lack of new data should correctly trigger
-        # alerts to investigate. Polling the latest snapshot timestamp is a bit of
-        # a hack, but it should work:
-        await wait_until_fresh_snapshot(location, backend)
+    raise_no_fresh_error_at_end = False
+    has_newer = None  # lazy variable, no info yet
+    if not no_wait:
+        # We can't really know when the fresh snapshot is going to be ready, but we normally want to wait with collecting health data until
+        # *after* that. If waiting for a fresh snapshot times out, we treat it as an error to trigger an investigation. In that case, we
+        # still want to collect the latest data if it is newer than what we have already stored. (This happens, for example, when the
+        # previous run timed out but a fresh snapshot showed up afterwards, just too late for that run.)
+        has_fresh = await wait_until_fresh_snapshot(location, backend)
+
+        # Freshness has no bearing on whether the latest is newer-than-stored and we _always_ want to end up with an up-to-date state file:
+        has_newer = await has_newer_snapshot_than_stored(location, backend)
+        if not has_fresh:
+            # Going to fail either way, but maybe still want to collect newer data:
+            if has_newer:
+                raise_no_fresh_error_at_end = True
+                logging.warning(f'The expected fresh snapshot did not appear for {repo} but there is newer data than the state file (continuing collection)')
+            else:
+                logging.error(f'Failing {repo} because there is neither a fresh snapshot nor one we don\'t already know about')
+                raise ResticHealthError
+
+    if has_newer is None:  # only check newness if we don't already know by now
+        has_newer = await has_newer_snapshot_than_stored(location, backend)
+
+    if not has_newer:
+        logging.info(f'Skipping {repo} because there is no snapshot newer than the latest we know about')
+        return  # no error, just nothing to do
 
     await wait_until_unlocked(location, backend)
 
@@ -284,6 +304,10 @@ async def repo_collect(location, backend, skip_current):
         diff_stats_latest = await get_diff_stats(location, backend, latest_two)
         await write_state_file(location, backend, 'raw-diff-stats-latest', diff_stats_latest)
 
+    if raise_no_fresh_error_at_end:
+        logging.error(f'Failing {repo} because there was no fresh snapshot (but we collected newer data than we had)')
+        raise ResticHealthError
+
 async def repo_check(location, backend, read_data):
     repo = f'{location.name}@{backend.name}'
 
@@ -299,7 +323,7 @@ async def main():
     for location_name, location in locations.items():
         for backend_name, backend in location.backends.items():
             if args.command == 'collect':
-                handler = asyncio.create_task(repo_collect(location, backend, skip_current=args.skip_current))
+                handler = asyncio.create_task(repo_collect(location, backend, no_wait=args.no_wait))
             elif args.command == 'check':
                 handler = asyncio.create_task(repo_check(location, backend, read_data=False))
             elif args.command == 'check-read-data':
