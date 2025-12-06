@@ -219,7 +219,7 @@ async def wait_until_fresh_snapshot(location, backend) -> bool:
         if retries_remaining == 0:
             logging.info(f'Giving up waiting for fresh snapshot in {repo} (latest is from {latest_snapshot_timestamp})')
             return False
-        logging.debug(f'{repo} has no new snapshot, waiting {config.retry_delay} seconds before checking up to {retries_remaining} more time(s)')
+        logging.debug(f'{repo} has no fresh snapshot, waiting {config.retry_delay} seconds before checking up to {retries_remaining} more time(s)')
         retries_remaining -= 1
         await asyncio.sleep(config.retry_delay)
 
